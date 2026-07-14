@@ -2,7 +2,7 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 
 dotenv.config();
 
@@ -64,7 +64,7 @@ app.post('/api/users', async (req: Request, res: Response) => {
       role: 'user',
       createdAt: new Date()
     });
-    
+
     res.status(201).send(result);
   } catch (error) {
     res.status(500).send({ message: 'Failed to create user', error });
@@ -101,6 +101,21 @@ app.get('/api/events', async (req: Request, res: Response) => {
     res.status(500).send({ message: 'Failed to fetch events' });
   }
 });
+
+app.delete('/api/events/:id', async (req, res) => {
+  const id = req.params.id;
+  const result = await eventsCollection.deleteOne({ _id: new ObjectId(id) });
+  res.send(result);
+});
+
+app.patch('/api/events/approve/:id', async (req, res) => {
+  const id = req.params.id;
+  const filter = { _id: new ObjectId(id) };
+  const updateDoc = { $set: { status: 'approved' } };
+  const result = await eventsCollection.updateOne(filter, updateDoc);
+  res.send(result);
+});
+
 
 app.post('/api/bookings', async (req: Request, res: Response) => {
   try {
