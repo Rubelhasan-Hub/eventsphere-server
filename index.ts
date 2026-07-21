@@ -1,8 +1,9 @@
 import express from 'express';
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import { MongoClient, ObjectId } from 'mongodb';
+
 
 dotenv.config();
 
@@ -29,13 +30,37 @@ async function connectDB() {
     console.error("MongoDB Atlas connection failed:", error);
   }
 }
+
+
+const verifyToken = async (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader?.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).send({ message: "Unauthorized: No token" });
+  }
+
+  try {
+    next(); 
+  } catch (error) {
+    return res.status(403).send({ message: "Invalid or expired token" });
+  }
+};
+
+
+
+
+
+
+
+
+
 connectDB();
 
 const database = client.db("eventsphere_db");
 const usersCollection = database.collection("users");
 const eventsCollection = database.collection("events");
 const bookingsCollection = database.collection("bookings");
-const reviewsCollection = database.collection("reviews");
 
 app.get('/', (req: Request, res: Response) => {
   res.send('EventSphere Live Server is Running!');
@@ -93,10 +118,41 @@ app.post('/api/events', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/events', async (req: Request, res: Response) => {
+app.get('/api/events',verifyToken,async (req: Request, res: Response) => {
   try {
-    const events = await eventsCollection.find().sort({ createdAt: -1 }).toArray();
-    res.send(events);
+    // প্যাগিনেশন এবং ফিল্টার প্যারামিটার রিসিভ করা
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = 6;
+    const skip = (page - 1) * limit;
+    const category = req.query.category as string;
+    const search = req.query.search as string;
+
+    // JWT/Auth চেক (Authorization হেডার থেকে)
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).send({ message: 'Unauthorized: No token provided' });
+    }
+
+    // ফিল্টারিং লজিক
+    let query: any = { status: "approved" };
+    if (category && category !== 'all') query.category = category;
+    if (search) query.title = { $regex: search, $options: 'i' };
+
+    // ডাটাবেজ অপারেশন
+    const totalEvents = await eventsCollection.countDocuments(query);
+    const events = await eventsCollection
+      .find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray();
+
+    res.send({
+      events,
+      totalEvents,
+      totalPages: Math.ceil(totalEvents / limit),
+      currentPage: page
+    });
   } catch (error) {
     res.status(500).send({ message: 'Failed to fetch events' });
   }
